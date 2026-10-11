@@ -1,0 +1,7 @@
+build/
+samples/
+node_modules/
+*.apk
+*.apk.idsig
+*.keystore
+*.log
