@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="paper">#F1E7D6</color>
+    <color name="seal">#CF3A28</color>
+    <bool name="light_bars">true</bool>
+</resources>
