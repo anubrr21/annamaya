@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="24" fill="#cf3a28"/>
+  <g transform="rotate(-7 60 60) translate(9.6 9.6) scale(0.84)" fill="none" stroke="#fff6e6">
+    <circle cx="60" cy="60" r="56" stroke-width="3.5"/><circle cx="60" cy="60" r="37.5" stroke-width="1.5"/>
+    <path id="a" d="M16.5 60a43.5 43.5 0 1 1 87 0a43.5 43.5 0 1 1-87 0" stroke="none"/>
+    <text fill="#fff6e6" stroke="none" font-family="Bahnschrift, 'Roboto Condensed', 'Arial Narrow', sans-serif" font-size="11.5" font-weight="700"><textPath href="#a" textLength="268" lengthAdjust="spacing">ANNAMAYA ✦ MESS JOURNAL ✦ EAT WELL ✦</textPath></text>
+    <circle cx="60" cy="60" r="27" pathLength="100" stroke-width="5.5" stroke-dasharray="20.5 4.5" transform="rotate(-81 60 60)"/>
+    <ellipse cx="60" cy="60" rx="8.5" ry="16.5" transform="rotate(32 60 60)" fill="#fff6e6" stroke="none"/>
+  </g>
+</svg>
