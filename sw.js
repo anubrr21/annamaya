@@ -1,4 +1,4 @@
-const VERSION = 'annamaya-v6';
+const VERSION = 'annamaya-v7';
 const SHELL = [
   './',
   'index.html',

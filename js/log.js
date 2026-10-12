@@ -273,13 +273,14 @@ export function openLog({ date = S.now, meal, mode = 'photo', plan, edit = null 
         ${r.notes ? `<div class="note ${r.confidence === 'low' ? 'warn' : ''}">${esc(r.notes)} Adjust anything that looks off.</div>` : ''}
         </div>${editableList()}<button class="link" data-s="retake" style="margin-top:14px">Use a different photo</button>`;
     }
-    const ready = navigator.onLine && S.ai.key;
+    const ready = navigator.onLine && ai.hasKey(S.ai);
     return `${img}<div class="stack" style="margin-top:12px">
       ${L.error ? `<div class="note warn">${esc(L.error)}</div>` : ''}
       <label class="field">Anything worth knowing? (optional)<input type="text" data-f="hint" value="${esc(L.hint)}" placeholder="e.g. second helping of rice, skipped the curry"></label>
       ${ready ? `<button class="btn primary block" data-s="analyse">${ICONS.sparkle} Estimate calories</button>`
-        : `<div class="note">${S.ai.key ? 'You are offline.' : 'No AI key added yet (Settings → Photo calorie estimates).'} Save the photo now and it will be analysed automatically later, or switch to “From menu” to log offline right away.</div>`}
-      ${!ready || L.canDefer ? `<button class="btn block" data-s="defer">Save photo, analyse later</button>` : ''}
+        : `<div class="note">${ai.hasKey(S.ai) ? 'You are offline.' : 'No AI key added yet (Settings → Photo calorie estimates).'} Save the photo now and it will be analysed automatically later, or switch to “From menu” to log offline right away.</div>`}
+      ${!ready || L.error ? `<button class="btn block" data-s="defer">Save photo, analyse later</button>` : ''}
+      ${L.error ? `<button class="btn block" data-s="mode" data-v="menu">Tick items from the menu instead</button>` : ''}
       <button class="link" data-s="retake">Use a different photo</button></div>`;
   }
 
@@ -406,7 +407,7 @@ async function analysePending(entry, { loud = false } = {}) {
 
 let draining = false;
 export async function processPending() {
-  if (draining || !navigator.onLine || !S.ai.key) return;
+  if (draining || !navigator.onLine || !ai.hasKey(S.ai)) return;
   draining = true;
   try {
     const pending = (await db.logs.all()).filter((e) => e.pending && e.photoId);

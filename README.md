@@ -13,7 +13,8 @@ The name comes from *annamaya kosha*, the body made of food.
 - Import a new workbook each month from inside the app
 
 **Logging**
-- Photograph a plate for a calorie and macro estimate (Gemini API, uses your own key)
+- Photograph a plate for a calorie and macro estimate, using your own API keys
+- Up to four AI services (Gemini, Groq, OpenRouter, Mistral) with automatic fallback when one fails
 - Tick items off the day's menu, with portion steppers
 - Add anything by hand
 - Photos taken offline are queued and analysed when the device is back online
@@ -54,7 +55,7 @@ This needs the Android SDK (build-tools and a platform) and a JDK. It produces `
 
 ## Photo estimates
 
-Create a Gemini API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and paste it under **Settings → Photo calorie estimates**. The key is stored on the device and sent only to Google. Without a key, menu and manual logging still work using the built-in food table.
+Add a key for any of the supported services under **Settings → Photo calorie estimates**: Gemini, Groq, OpenRouter or Mistral. Each can be tested from the same screen. When more than one key is saved, the app tries them in order and moves to the next if a request fails or a quota runs out. Keys are stored on the device and sent only to their own service. Without a key, menu and manual logging still work using the built-in food table.
 
 All calorie and nutrient figures are estimates.
 
@@ -75,7 +76,7 @@ js/
   nutrition.js        Food table, targets, food groups
   insights.js         Period and day analysis
   charts.js           SVG charts and icons
-  ai.js               Gemini requests
+  ai.js               AI service requests and fallback
   pdf.js, report.js   PDF report
   db.js               IndexedDB storage
   fx.js               Small UI effects

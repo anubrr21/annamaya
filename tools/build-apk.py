@@ -10,8 +10,8 @@ ANDROID = ROOT / "android"
 BUILD = ROOT / "build"
 OUT = ROOT / "Annamaya.apk"
 
-VERSION_CODE = "5"
-VERSION_NAME = "2.3.0"
+VERSION_CODE = "6"
+VERSION_NAME = "2.4.0"
 MIN_SDK = "29"
 TARGET_SDK = "34"
 

@@ -13,7 +13,7 @@ import { buildReport } from './report.js';
 import { openLog, openEntry, openDay, processPending, closeSheet } from './log.js';
 
 const BUNDLED_MENUS = ['menu/2026-10.xlsx'];
-const VERSION = '2.3.0';
+const VERSION = '2.4.0';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -29,7 +29,8 @@ export const S = {
   targets: { ...DEFAULT_TARGETS, manual: false },
   profile: {},
   times: structuredClone(DEFAULT_TIMES),
-  ai: { key: '', model: '' },
+  ai: ai.emptyConfig(),
+  aiStatus: {},
   dayKey: null,
   focus: null,
   todayPlan: null,
@@ -629,10 +630,19 @@ function viewSettings() {
   </section></div>
 
   <div class="set-group"><h3>Photo calorie estimates</h3><section class="card stack">
-    <label class="field">Gemini API key<input type="password" data-set="ai.key" value="${esc(S.ai.key)}" placeholder="Paste your key" autocomplete="off" spellcheck="false"></label>
-    <label class="field">Model<input type="text" list="gemini-models" data-set="ai.model" value="${esc(S.ai.model || ai.GEMINI.defaultModel)}" spellcheck="false"><datalist id="gemini-models">${ai.GEMINI_MODELS.map((m) => `<option value="${m}">`).join('')}</datalist></label>
-    <div class="note">Your key is kept only on this device and sent only to Google when you analyse a photo. Get one at ${ai.GEMINI.keyUrl.replace('https://', '')}. Keys are free to create and include a free usage tier; your limits are shown in Google AI Studio. Without a key, tick-from-menu logging still works fully offline.</div>
-    <button class="btn" data-action="test-key">Test key</button>
+    <div class="note">Add a key for one or more services. If the first one fails or runs out of quota, the app moves on to the next automatically. Keys stay on this device and are sent only to their own service. Without any key, tick-from-menu logging still works fully offline.</div>
+    <label class="field">Try first${sel('ai.first', ai.PROVIDER_IDS.map((id) => [id, ai.PROVIDERS[id].label]), S.ai.first)}</label>
+    ${ai.PROVIDER_IDS.map((id) => {
+      const p = ai.PROVIDERS[id];
+      const st = S.aiStatus[id];
+      return `<div class="provider ${S.ai.keys[id] ? 'has-key' : ''}">
+        <div class="row"><b class="grow">${p.label}</b><span class="pstatus ${st ? (st.ok ? 'ok' : 'bad') : ''}">${st ? esc(st.text) : S.ai.keys[id] ? 'Key saved' : 'No key'}</span></div>
+        <label class="field">API key<input type="password" data-set="ai.keys.${id}" value="${esc(S.ai.keys[id])}" placeholder="Paste your ${p.label} key" autocomplete="off" spellcheck="false"></label>
+        <label class="field">Model<input type="text" list="models-${id}" data-set="ai.models.${id}" value="${esc(S.ai.models[id] || p.models[0])}" spellcheck="false"><datalist id="models-${id}">${p.models.map((m) => `<option value="${m}">`).join('')}</datalist></label>
+        <div class="row"><span class="small muted grow">Get a key at ${p.keyUrl.replace('https://', '')}</span><button class="btn sm" data-action="test-key" data-value="${id}">Test</button></div>
+      </div>`;
+    }).join('')}
+    <button class="btn" data-action="test-all-keys">Test all keys</button>
   </section></div>
 
   <div class="set-group"><h3>Appearance</h3><section class="card">${seg('set-theme', [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], S.prefs.theme)}</section></div>
@@ -743,10 +753,12 @@ async function saveSetting(path, raw) {
     S.times[key] = next;
     await db.kv.set('times', S.times);
   } else if (group === 'ai') {
-    S.ai[key] = raw.trim();
+    if (key === 'first') S.ai.first = raw;
+    else S.ai[key][idx] = raw.trim();
+    delete S.aiStatus[idx];
     await db.kv.set('ai', S.ai);
   }
-  if (group !== 'ai') render();
+  if (group !== 'ai' || key === 'keys') render();
 }
 
 async function importMenuFile(file) {
@@ -908,16 +920,14 @@ const ACTIONS = {
     render();
   },
   'test-key': async (el) => {
+    await testKey(el.dataset.value);
+    render();
+  },
+  'test-all-keys': async (el) => {
     el.disabled = true;
     el.textContent = 'Testing…';
-    try {
-      await ai.ping(S.ai);
-      toast('Key works. Photo estimates are ready.');
-    } catch (err) {
-      toast(err.message, 5000);
-    }
-    el.disabled = false;
-    el.textContent = 'Test key';
+    for (const id of ai.PROVIDER_IDS) await testKey(id);
+    render();
   },
   coach: async (el) => {
     const { from, to, label } = rangeBounds();
@@ -1085,12 +1095,26 @@ window.__annamayaBack = () => {
   return false;
 };
 
+async function testKey(id) {
+  if (!(S.ai.keys[id] || '').trim()) {
+    delete S.aiStatus[id];
+    return;
+  }
+  S.aiStatus[id] = { ok: false, text: 'Testing…' };
+  try {
+    await ai.ping(S.ai, id);
+    S.aiStatus[id] = { ok: true, text: 'Working' };
+  } catch (err) {
+    S.aiStatus[id] = { ok: false, text: err.message };
+  }
+}
+
 async function loadState() {
   S.prefs = { ...S.prefs, ...(await db.kv.get('prefs', {})) };
   S.profile = await db.kv.get('profile', {});
   S.targets = { ...S.targets, ...(await db.kv.get('targets', {})) };
   S.times = { ...structuredClone(DEFAULT_TIMES), ...(await db.kv.get('times', {})) };
-  S.ai = { ...S.ai, ...(await db.kv.get('ai', {})) };
+  S.ai = ai.normaliseConfig(await db.kv.get('ai', null));
   S.coach = await db.kv.get('coach', {});
 }
 
