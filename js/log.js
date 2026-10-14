@@ -24,7 +24,7 @@ export function closeSheet({ rerender = true } = {}) {
   root.onclick = root.oninput = root.onchange = null;
 }
 
-function sheet(on = {}) {
+export function sheet(on = {}) {
   if (current) closeSheet({ rerender: false });
   const root = $('#sheet-root');
   const scrim = Object.assign(document.createElement('div'), { className: 'scrim' });

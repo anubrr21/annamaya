@@ -1,4 +1,4 @@
-const VERSION = 'annamaya-v7';
+const VERSION = 'annamaya-v8';
 const SHELL = [
   './',
   'index.html',
@@ -16,6 +16,9 @@ const SHELL = [
   'js/fx.js',
   'js/pdf.js',
   'js/report.js',
+  'js/body.js',
+  'js/activity.js',
+  'js/move.js',
   'icons/logo.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',

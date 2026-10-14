@@ -205,14 +205,14 @@ export function totals(items) {
 }
 
 const ACTIVITY = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725 };
-const GOAL_SHIFT = { lose: -400, maintain: 0, gain: 300 };
+const GOAL_SHIFT = { 'lose-fast': -550, lose: -275, maintain: 0, gain: 275, 'gain-fast': 550 };
 
 export function computeTargets(profile) {
   const { sex = 'male', age, heightCm, weightKg, activity = 'light', goal = 'maintain' } = profile || {};
   if (!age || !heightCm || !weightKg) return null;
   const bmr = 10 * weightKg + 6.25 * heightCm - 5 * age + (sex === 'female' ? -161 : 5);
   const tdee = bmr * (ACTIVITY[activity] || ACTIVITY.light);
-  const kcal = Math.max(1200, Math.round((tdee + (GOAL_SHIFT[goal] || 0)) / 10) * 10);
+  const kcal = Math.max(sex === 'female' ? 1200 : 1500, Math.round((tdee + (GOAL_SHIFT[goal] || 0)) / 10) * 10);
   const protein = Math.round(weightKg * (goal === 'maintain' ? 1.2 : 1.6));
   const fat = Math.round((kcal * 0.27) / 9);
   const carbs = Math.round((kcal - protein * 4 - fat * 9) / 4);

@@ -1,19 +1,27 @@
 const DB_NAME = 'annamaya';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise;
 
 function open() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = (ev) => {
         const db = req.result;
-        db.createObjectStore('kv');
-        db.createObjectStore('menus', { keyPath: 'key' });
-        db.createObjectStore('photos');
-        db.createObjectStore('days', { keyPath: 'date' });
-        const logs = db.createObjectStore('logs', { keyPath: 'id' });
-        logs.createIndex('date', 'date');
+        if (ev.oldVersion < 1) {
+          db.createObjectStore('kv');
+          db.createObjectStore('menus', { keyPath: 'key' });
+          db.createObjectStore('photos');
+          db.createObjectStore('days', { keyPath: 'date' });
+          const logs = db.createObjectStore('logs', { keyPath: 'id' });
+          logs.createIndex('date', 'date');
+        }
+        if (ev.oldVersion < 2) {
+          db.createObjectStore('activity', { keyPath: 'date' });
+          db.createObjectStore('weights', { keyPath: 'date' });
+          const workouts = db.createObjectStore('workouts', { keyPath: 'id' });
+          workouts.createIndex('date', 'date');
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -66,6 +74,27 @@ export const days = {
   put: async (day) => done((await store('days', 'readwrite')).put(day)),
 };
 
+export const activity = {
+  get: async (date) => done((await store('activity')).get(date)),
+  all: async () => done((await store('activity')).getAll()),
+  range: async (from, to) => done((await store('activity')).getAll(IDBKeyRange.bound(from, to))),
+  put: async (day) => done((await store('activity', 'readwrite')).put(day)),
+};
+
+export const workouts = {
+  all: async () => done((await store('workouts')).getAll()),
+  forDate: async (date) => done((await store('workouts')).index('date').getAll(date)),
+  range: async (from, to) => done((await store('workouts')).index('date').getAll(IDBKeyRange.bound(from, to))),
+  put: async (w) => done((await store('workouts', 'readwrite')).put(w)),
+  remove: async (id) => done((await store('workouts', 'readwrite')).delete(id)),
+};
+
+export const weights = {
+  all: async () => (await done((await store('weights')).getAll())).sort((a, b) => a.date.localeCompare(b.date)),
+  put: async (w) => done((await store('weights', 'readwrite')).put(w)),
+  remove: async (date) => done((await store('weights', 'readwrite')).delete(date)),
+};
+
 const blobToDataUrl = (blob) =>
   new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -80,8 +109,11 @@ export async function exportAll({ includePhotos = true } = {}) {
   out.logs = await logs.all();
   out.days = await days.all();
   out.menus = await menus.all();
+  out.activity = await activity.all();
+  out.workouts = await workouts.all();
+  out.weights = await weights.all();
   out.kv = {};
-  for (const key of ['profile', 'targets', 'times', 'prefs']) out.kv[key] = await kv.get(key);
+  for (const key of ['profile', 'targets', 'times', 'prefs', 'move']) out.kv[key] = await kv.get(key);
   out.photos = {};
   if (includePhotos) {
     const tx = db.transaction('photos').objectStore('photos');
@@ -99,6 +131,9 @@ export async function importAll(data) {
   for (const log of data.logs || []) await logs.put(log);
   for (const day of data.days || []) await days.put(day);
   for (const menu of data.menus || []) await menus.put(menu);
+  for (const a of data.activity || []) await activity.put(a);
+  for (const w of data.workouts || []) await workouts.put(w);
+  for (const w of data.weights || []) await weights.put(w);
   for (const [key, value] of Object.entries(data.kv || {})) if (value != null) await kv.set(key, value);
   for (const [id, url] of Object.entries(data.photos || {})) {
     await photos.put(id, await (await fetch(url)).blob());
@@ -108,7 +143,7 @@ export async function importAll(data) {
 
 export async function wipeAll() {
   const db = await open();
-  for (const name of ['logs', 'photos', 'days']) await done(db.transaction(name, 'readwrite').objectStore(name).clear());
+  for (const name of ['logs', 'photos', 'days', 'activity', 'workouts', 'weights']) await done(db.transaction(name, 'readwrite').objectStore(name).clear());
 }
 
 export async function requestPersistence() {

@@ -19,11 +19,23 @@ The name comes from *annamaya kosha*, the body made of food.
 - Add anything by hand
 - Photos taken offline are queued and analysed when the device is back online
 
+**Movement**
+- Counts steps with the phone's hardware step counter, including while the app is closed
+- Distance from steps and step length, floors climbed from the barometer
+- Calories burned: resting energy (Mifflin–St Jeor), digestion, walking, stairs and workouts
+- Workout log and live workout timer, using MET values from the Compendium of Physical Activities
+- Weight log with trend
+- Steps can also be entered by hand, for devices without a step sensor
+
+**Your numbers**
+- Calorie range for each goal, maintenance by activity level and measured maintenance from tracked days
+- BMI with the Asian cut-offs, healthy weight range, protein range and water target
+
 **Analysis**
 - Daily coupon view with calories against target and a timeline of the day
 - Day statement: meal-by-meal breakdown, macro split, food groups, itemised list, eating window and notes
 - Journal in the form of a monthly attendance register
-- Insights over 7 days, 30 days, the month or all time: attendance, weekday pattern, most eaten dishes
+- Insights over 7 days, 30 days, the month or all time, in three views: Food, Fitness and Balance (eaten versus burned, predicted versus measured weight change)
 - Export a full PDF report or CSV for any period
 
 **Other**
@@ -51,6 +63,8 @@ The Android app is a thin shell around the same code, with the web files bundled
 python tools/build-apk.py
 ```
 
+The app asks for the Physical activity permission to read the step counter. Optional continuous tracking runs a foreground service with a notification to count floors and record steps hour by hour.
+
 This needs the Android SDK (build-tools and a platform) and a JDK. It produces `Annamaya.apk`, signed with a local key that is generated on the first build. Minimum Android version is 10.
 
 ## Photo estimates
@@ -74,6 +88,9 @@ js/
   menu.js             Menu parsing and meal schedule
   xlsx.js             Workbook reader
   nutrition.js        Food table, targets, food groups
+  body.js             Energy needs, BMI, calories burned, workouts
+  activity.js         Step samples, daily and hourly totals
+  move.js             Move tab, fitness and balance analysis
   insights.js         Period and day analysis
   charts.js           SVG charts and icons
   ai.js               AI service requests and fallback

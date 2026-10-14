@@ -1,14 +1,22 @@
 package app.annamaya;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.os.Build;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Parcelable;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Base64;
 import android.view.View;
 import android.view.Window;
@@ -33,6 +41,8 @@ public class MainActivity extends Activity {
     private static final String HOST = "app.annamaya.local";
     private static final String START = "https://" + HOST + "/index.html";
     private static final int PICK_FILE = 71;
+    private static final int MOTION_PERMISSION = 72;
+    private static final int NOTIFY_PERMISSION = 73;
 
     private static final Map<String, String> MIME = new HashMap<>();
     static {
@@ -51,6 +61,23 @@ public class MainActivity extends Activity {
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraUri;
+    private SensorManager sensors;
+    private long lastTick;
+    private final SensorEventListener live = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent e) {
+            long t = StepStore.wallTime(e);
+            long count = (long) e.values[0];
+            StepStore.record(MainActivity.this, t, count);
+            if (t - lastTick < 1500) return;
+            lastTick = t;
+            if (web != null) web.evaluateJavascript("window.__annamayaStep && window.__annamayaStep(" + count + "," + t + ")", null);
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
+        }
+    };
 
     @Override
     protected void onCreate(Bundle state) {
@@ -98,6 +125,9 @@ public class MainActivity extends Activity {
             }
         });
 
+        sensors = getSystemService(SensorManager.class);
+        StepJob.schedule(this);
+        if (TrackerService.enabled(this) && StepStore.permitted(this)) TrackerService.setEnabled(this, true);
         if (state == null) web.loadUrl(START);
         else web.restoreState(state);
     }
@@ -191,6 +221,54 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        startLive();
+    }
+
+    @Override
+    protected void onPause() {
+        stopLive();
+        super.onPause();
+    }
+
+    private void startLive() {
+        Sensor counter = StepStore.sensor(this, Sensor.TYPE_STEP_COUNTER);
+        if (sensors == null || counter == null || !StepStore.permitted(this)) return;
+        try {
+            sensors.registerListener(live, counter, SensorManager.SENSOR_DELAY_UI);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private void stopLive() {
+        if (sensors == null) return;
+        try {
+            sensors.unregisterListener(live);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (request == MOTION_PERMISSION && StepStore.permitted(this)) {
+            StepJob.schedule(this);
+            startLive();
+            StepStore.sampleOnce(this, null);
+        }
+        if (request == NOTIFY_PERMISSION && TrackerService.enabled(this)) TrackerService.setEnabled(this, true);
+        web.evaluateJavascript("window.__annamayaMotion && window.__annamayaMotion()", null);
+    }
+
+    private String permissionState() {
+        if (StepStore.permitted(this)) return "granted";
+        boolean asked = StepStore.prefs(this).getBoolean("asked", false);
+        if (asked && !shouldShowRequestPermissionRationale(Manifest.permission.ACTIVITY_RECOGNITION)) return "blocked";
+        return asked ? "denied" : "prompt";
+    }
+
+    @Override
     public void onBackPressed() {
         web.evaluateJavascript("(window.__annamayaBack && window.__annamayaBack()) ? 1 : 0", value -> {
             if (!"1".equals(value)) finish();
@@ -204,6 +282,67 @@ public class MainActivity extends Activity {
     }
 
     private class Bridge {
+        @JavascriptInterface
+        public String motionStatus() {
+            boolean counter = StepStore.sensor(MainActivity.this, Sensor.TYPE_STEP_COUNTER) != null;
+            boolean barometer = StepStore.sensor(MainActivity.this, Sensor.TYPE_PRESSURE) != null;
+            boolean notify = Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+            return "{\"stepCounter\":" + counter + ",\"barometer\":" + barometer + ",\"permission\":\"" + permissionState()
+                    + "\",\"tracking\":" + TrackerService.enabled(MainActivity.this) + ",\"notifications\":" + notify + "}";
+        }
+
+        @JavascriptInterface
+        public void requestMotionPermission() {
+            runOnUiThread(() -> {
+                StepStore.prefs(MainActivity.this).edit().putBoolean("asked", true).apply();
+                requestPermissions(new String[]{Manifest.permission.ACTIVITY_RECOGNITION}, MOTION_PERMISSION);
+            });
+        }
+
+        @JavascriptInterface
+        public void openAppSettings() {
+            runOnUiThread(() -> {
+                try {
+                    startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+                } catch (ActivityNotFoundException ignored) {
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String motionSamples(String since) {
+            return StepStore.samplesJson(MainActivity.this, parse(since));
+        }
+
+        @JavascriptInterface
+        public String floorEvents(String since) {
+            return StepStore.floorsJson(MainActivity.this, parse(since));
+        }
+
+        @JavascriptInterface
+        public void refreshSteps() {
+            runOnUiThread(() -> StepStore.sampleOnce(MainActivity.this, () -> web.evaluateJavascript("window.__annamayaMotion && window.__annamayaMotion()", null)));
+        }
+
+        @JavascriptInterface
+        public void setTracking(final boolean on) {
+            runOnUiThread(() -> {
+                if (on && !StepStore.permitted(MainActivity.this)) return;
+                TrackerService.setEnabled(MainActivity.this, on);
+                if (on && Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFY_PERMISSION);
+                }
+            });
+        }
+
+        private long parse(String since) {
+            try {
+                return Long.parseLong(since);
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+
         @JavascriptInterface
         public void saveFile(String name, String mime, String base64) {
             String message;

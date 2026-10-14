@@ -48,7 +48,7 @@ function drawSeal(doc, cx, cy, R, color) {
   doc.ellipse(cx, cy, 8.5 * u, 16.5 * u, (32 * Math.PI) / 180 + tilt, color);
 }
 
-export async function buildReport({ logs, from, to, now = new Date(), targets, profile = {}, tdee = null, times, offeredFor = () => [], coachText = '', periodName = '' }) {
+export async function buildReport({ logs, from, to, now = new Date(), targets, profile = {}, tdee = null, times, offeredFor = () => [], coachText = '', periodName = '', activity = null }) {
   const doc = new Pdf();
   let y = M;
   const s = summarise({ logs, from, to, now, targets, times });
@@ -320,6 +320,64 @@ export async function buildReport({ logs, from, to, now = new Date(), targets, p
       );
     }
 
+    const act = activity && activity.days.length ? activity : null;
+    if (act) {
+      const ad = act.days;
+      const withSteps = ad.filter((d) => d.steps > 0);
+      const avgOf = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+      const workouts = ad.flatMap((d) => d.workouts.map((w) => ({ ...w, date: d.date })));
+      section('Movement', `steps, distance, floors and workouts · goal ${num(act.stepGoal)} steps`, 90);
+      tiles([
+        { label: 'Steps per day', value: num(avgOf(withSteps.map((d) => d.steps))), sub: `${withSteps.filter((d) => d.steps >= act.stepGoal).length} of ${withSteps.length} days at goal` },
+        { label: 'Distance', value: ad.reduce((a, d) => a + d.km, 0).toFixed(1), unit: 'km', sub: `${(ad.reduce((a, d) => a + d.km, 0) / Math.max(1, withSteps.length)).toFixed(2)} km a day` },
+        { label: 'Floors climbed', value: num(ad.reduce((a, d) => a + d.floors, 0)), sub: `${num(ad.reduce((a, d) => a + d.floors, 0) * 3)} m of height` },
+        { label: 'Workouts', value: String(workouts.length), sub: `${num(workouts.reduce((a, w) => a + w.minutes, 0))} min · ${num(workouts.reduce((a, w) => a + w.kcal, 0))} kcal` },
+      ]);
+      table(
+        [{ label: 'Date', w: 80, font: 'helv' }, { label: 'Steps', w: 50, align: 'right' }, { label: 'km', w: 38, align: 'right' }, { label: 'Floors', w: 38, align: 'right' }, { label: '', w: 90 },
+          { label: 'Walking', w: 48, align: 'right' }, { label: 'Stairs', w: 40, align: 'right' }, { label: 'Workouts', w: 52, align: 'right' }, { label: 'Source', w: 50 }],
+        ad.map((d) => ({ cells: [parseDateKey(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }), num(d.steps), d.km.toFixed(2), String(d.floors),
+          { bar: d.steps / Math.max(act.stepGoal, ...ad.map((x) => x.steps)), color: d.steps >= act.stepGoal ? INK : MUTED }, num(d.walking), num(d.stairs), num(d.exercise), d.source === 'manual' ? 'by hand' : d.source === 'sensor' ? 'phone' : '–'] })),
+      );
+      if (workouts.length) {
+        section('Workouts', 'calories above resting, MET method', 60);
+        table(
+          [{ label: 'Date', w: 90, font: 'helv' }, { label: 'Activity', w: 130, font: 'helv' }, { label: 'Intensity', w: 64 }, { label: 'Minutes', w: 54, align: 'right' }, { label: 'kcal', w: 54, align: 'right' }],
+          workouts.map((w) => ({ cells: [`${parseDateKey(w.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} ${clock(w.start)}`, w.type, w.intensity, String(w.minutes), num(w.kcal)] })),
+        );
+      }
+      if (act.profileReady) {
+        const eatDays = ad.filter((d) => d.eaten > 0);
+        if (eatDays.length) {
+          const bal = eatDays.map((d) => d.eaten - d.total);
+          const sumBal = bal.reduce((a, b) => a + b, 0);
+          section('Energy balance', 'eaten minus burned, kcal', 90);
+          tiles([
+            { label: 'Eaten per day', value: num(avgOf(eatDays.map((d) => d.eaten))), unit: 'kcal', sub: `${eatDays.length} days with meals and movement` },
+            { label: 'Burned per day', value: num(avgOf(eatDays.map((d) => d.total))), unit: 'kcal', sub: 'resting + digestion + movement' },
+            { label: 'Average balance', value: signed(avgOf(bal)), unit: 'kcal', sub: sumBal > 0 ? 'surplus' : 'deficit', color: Math.abs(avgOf(bal)) > 300 ? RED : INK },
+            { label: 'Predicted change', value: `${sumBal >= 0 ? '+' : '-'}${Math.abs(sumBal / 7700).toFixed(2)}`, unit: 'kg', sub: act.weights.length >= 2 ? `scale: ${(act.weights[act.weights.length - 1].kg - act.weights[0].kg).toFixed(1)} kg` : 'at 7,700 kcal per kg' },
+          ]);
+          table(
+            [{ label: 'Date', w: 80, font: 'helv' }, { label: 'Resting', w: 46, align: 'right' }, { label: 'Digestion', w: 50, align: 'right' }, { label: 'Movement', w: 52, align: 'right' },
+              { label: 'Burned', w: 50, align: 'right' }, { label: 'Eaten', w: 50, align: 'right' }, { label: 'Balance', w: 52, align: 'right' }],
+            [...eatDays.map((d) => ({ cells: [parseDateKey(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }), num(d.resting), num(d.digestion), num(d.walking + d.stairs + d.exercise),
+              { text: num(d.total), font: 'monob' }, num(d.eaten), { text: signed(d.eaten - d.total), color: d.eaten - d.total > 0 ? RED : INK }] })),
+            { bold: true, rule: true, cells: ['Average', num(avgOf(eatDays.map((d) => d.resting))), num(avgOf(eatDays.map((d) => d.digestion))), num(avgOf(eatDays.map((d) => d.walking + d.stairs + d.exercise))), num(avgOf(eatDays.map((d) => d.total))), num(avgOf(eatDays.map((d) => d.eaten))), signed(avgOf(bal))] }],
+          );
+          paragraph('Burned = resting energy (BMR, Mifflin–St Jeor) + digestion (10% of food eaten) + walking (0.5 kcal per kg per km) + stairs + workouts above resting. Today, if included, uses the burn projected to midnight.', { size: 7.5, color: MUTED });
+          y += 4;
+        }
+      }
+      if (act.weights.length) {
+        section('Weight', `${act.weights.length} entries`, 60);
+        table(
+          [{ label: 'Date', w: 120, font: 'helv' }, { label: 'Weight kg', w: 70, align: 'right' }, { label: 'Change', w: 70, align: 'right' }],
+          act.weights.map((w, i) => ({ cells: [longDate(w.date), w.kg.toFixed(1), i ? `${(w.kg - act.weights[i - 1].kg) >= 0 ? '+' : ''}${(w.kg - act.weights[i - 1].kg).toFixed(1)}` : '–'] })),
+        );
+      }
+    }
+
     const fnd = single ? [] : findings(s, targets);
     if (fnd.length) {
       section('What the data says', `${fnd.length} findings`);
@@ -357,7 +415,8 @@ export async function buildReport({ logs, from, to, now = new Date(), targets, p
       y += 20;
       doc.rect(M, y, CW, 14, { fill: SLIP });
       const facts = [`P ${num(r.totals.protein)} g`, `C ${num(r.totals.carbs)} g`, `F ${num(r.totals.fat)} g`,
-        `energy split P ${Math.round(r.split.protein.pct)}% / C ${Math.round(r.split.carbs.pct)}% / F ${Math.round(r.split.fat.pct)}%`,
+        ...(() => { const a = activity?.days.find((x) => x.date === d.date); return a ? [`${num(a.steps)} steps`, `burned ${num(a.total)}`] : []; })(),
+        `split P ${Math.round(r.split.protein.pct)}/C ${Math.round(r.split.carbs.pct)}/F ${Math.round(r.split.fat.pct)}%`,
         r.clock.length > 1 ? `eating window ${formatDuration(r.eatingWindow)}` : '', r.vsMaintenance != null ? `${signed(r.vsMaintenance)} vs maintenance` : ''].filter(Boolean);
       doc.text(M + 7, y + 9.5, fit(facts.join('  ·  '), CW - 14, 'mono', 6.8), { font: 'mono', size: 6.8, color: INK2 });
       y += 19;

@@ -39,3 +39,19 @@ for (const [file, opts] of [
   await writeFile(new URL(`../samples/${file}`, import.meta.url), bytes);
   console.log(file, '->', name, `${pages} pages, ${(bytes.length / 1024).toFixed(1)} KB`);
 }
+
+const activityDays = [];
+for (let d = 1; d <= 11; d++) {
+  const key = `2026-10-${String(d).padStart(2, '0')}`;
+  const steps = 4000 + ((d * 1371) % 7000);
+  const eaten = logs.filter((e) => e.date === key).reduce((a, e) => a + e.kcal, 0);
+  const km = (steps * 0.714) / 1000;
+  const walking = Math.round(0.5 * 65 * km);
+  const workouts = d % 3 === 0 ? [{ type: 'Running', minutes: 30, intensity: 'moderate', kcal: 240, start: new Date(2026, 9, d, 18, 0).getTime() }] : [];
+  const exercise = workouts.reduce((a, w) => a + w.kcal, 0);
+  activityDays.push({ date: key, steps, km, floors: d % 4, resting: 1635, digestion: Math.round(eaten * 0.1), walking, stairs: (d % 4) * 2, exercise, total: 1635 + Math.round(eaten * 0.1) + walking + (d % 4) * 2 + exercise, eaten, source: 'sensor', workouts });
+}
+const activity = { days: activityDays, weights: [{ date: '2026-10-02', kg: 65.4 }, { date: '2026-10-09', kg: 65.9 }], stepGoal: 8000, profileReady: true };
+const { bytes, pages } = await buildReport({ ...base, from: '2026-10-01', to: '2026-10-11', periodName: 'This month', activity });
+await writeFile(new URL('../samples/sample-activity.pdf', import.meta.url), bytes);
+console.log('sample-activity.pdf', `${pages} pages`);

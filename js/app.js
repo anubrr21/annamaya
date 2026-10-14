@@ -10,10 +10,12 @@ import { dayTotals, summarise, streak, findings, coachPayload, eachDay, dayRepor
 import { dayline, dailyBars, ICONS, LOGO } from './charts.js';
 import * as fx from './fx.js';
 import { buildReport } from './report.js';
+import { MOVE_DEFAULTS, MOVE_ACTIONS, initMove, onResumeMove, tickMove, viewMove, todayMoveStrip, dayMoveCard, fitnessSection, balanceSection, needsCard, movementSettings, activityForReport, openWorkout, stopWorkout } from './move.js';
+import { ACTIVITY_LEVELS, GOALS } from './body.js';
 import { openLog, openEntry, openDay, processPending, closeSheet } from './log.js';
 
 const BUNDLED_MENUS = ['menu/2026-10.xlsx'];
-const VERSION = '2.4.0';
+const VERSION = '3.0.0';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -38,6 +40,8 @@ export const S = {
   menuPlan: null,
   journalMonth: null,
   range: '7',
+  insightsView: 'food',
+  move: { ...MOVE_DEFAULTS },
   showTable: false,
   coach: {},
   installEvt: null,
@@ -127,19 +131,19 @@ export function entryRow(e) {
     <span class="kc num">${e.pending ? '—' : fmt(e.kcal)}</span></button>`;
 }
 
-const meter = (label, value, target, unit = 'g', color = '') => `<div class="meter" ${color ? `style="--c:${color}"` : ''}>
+export const meter = (label, value, target, unit = 'g', color = '') => `<div class="meter" ${color ? `style="--c:${color}"` : ''}>
   <div class="lab"><b>${label}</b><span class="num">${fmt(value)} / ${fmt(target)} ${unit}</span></div>
   <div class="bar"><i style="width:${Math.min(100, target ? (value / target) * 100 : 0).toFixed(1)}%"></i></div></div>`;
 
-const seg = (action, options, current) => `<div class="seg" role="group">${options
+export const seg = (action, options, current) => `<div class="seg" role="group">${options
   .map(([v, label]) => `<button type="button" data-action="${action}" data-value="${v}" aria-pressed="${v === current}">${esc(label)}</button>`)
   .join('')}</div>`;
 
-const topBar = (title, sub, right = '') => `<header class="top">
+export const topBar = (title, sub, right = '') => `<header class="top">
   <div class="brand">${LOGO}<div class="grow"><h1>${esc(title)}</h1><div class="sub">${esc(sub)}</div></div></div>${right}</header>`;
 
 const themeIcon = () => ICONS[{ auto: 'auto', light: 'sun', dark: 'moon' }[S.prefs.theme]];
-const headerButtons = () => `<button class="icon-btn" data-action="cycle-theme" aria-label="Theme: ${S.prefs.theme}">${themeIcon()}</button>
+export const headerButtons = () => `<button class="icon-btn" data-action="cycle-theme" aria-label="Theme: ${S.prefs.theme}">${themeIcon()}</button>
   <a class="icon-btn" href="#settings" aria-label="Settings">${ICONS.gear}</a>`;
 
 function plansFor(date) {
@@ -232,6 +236,8 @@ async function viewToday() {
         ${taken ? '<span class="stamp">Eaten</span>' : ''}</button>`;
     }).join('')}</div>
   </section>
+
+  ${await todayMoveStrip()}
 
   ${!S.profile.weightKg && !S.targets.manual ? `<a class="card row nudge" href="#settings"><span class="ic">${ICONS.target}</span>
     <span class="grow"><b>Set your own calorie target</b><br><span class="small muted">Using a general 2,200 kcal for now. Add your height and weight in Settings.</span></span>${ICONS.right}</a>` : ''}
@@ -399,7 +405,10 @@ async function viewInsights() {
   const { from, to, label } = rangeBounds();
   const s = summarise({ logs: all, from, to, now: S.now, targets: S.targets, times: S.times });
   const head = `${topBar('Insights', label, headerButtons())}
+    <div style="margin-bottom:10px">${seg('insights-view', [['food', 'Food'], ['fitness', 'Fitness'], ['balance', 'Balance']], S.insightsView)}</div>
     <div style="margin-bottom:14px">${seg('range', [['7', '7 days'], ['30', '30 days'], ['month', 'This month'], ['all', 'All']], S.range)}</div>`;
+  if (S.insightsView === 'fitness') return `${head}${await fitnessSection(from, to)}`;
+  if (S.insightsView === 'balance') return `${head}${await balanceSection(from, to)}`;
   if (!s.active.length) {
     return `${head}<section class="card"><div class="empty"><p><b>No meals logged in this period yet.</b></p><p style="margin-top:6px">Log a few days and patterns, trends and a personal review will show up here.</p></div></section>`;
   }
@@ -578,6 +587,8 @@ async function viewDay() {
     }).join('')}
   </section>` : ''}
 
+  ${await dayMoveCard(key, t.kcal)}
+
   <section class="card">
     <div class="card-head"><h2>Written review</h2><span class="aside">AI · needs internet</span></div>
     ${review ? `<div class="coach">${esc(review)}</div><button class="btn sm" style="margin-top:12px" data-action="day-review">Rewrite</button>`
@@ -602,9 +613,9 @@ function viewSettings() {
       <label class="field">Height (cm)<input type="number" inputmode="decimal" data-set="profile.heightCm" value="${p.heightCm || ''}"></label>
       <label class="field">Weight (kg)<input type="number" inputmode="decimal" data-set="profile.weightKg" value="${p.weightKg || ''}"></label>
     </div>
-    <label class="field">Activity${sel('profile.activity', [['sedentary', 'Mostly sitting'], ['light', 'Light — walking to class'], ['moderate', 'Moderate — sport 3-5×/week'], ['active', 'Very active — daily training']], p.activity || 'light')}</label>
-    <label class="field">Goal${sel('profile.goal', [['lose', 'Lose weight'], ['maintain', 'Maintain'], ['gain', 'Gain weight']], p.goal || 'maintain')}</label>
-    ${calc ? `<div class="note">Resting burn ≈ ${fmt(calc.bmr)} kcal · maintenance ≈ ${fmt(calc.tdee)} kcal · suggested target ${fmt(calc.kcal)} kcal. Estimates from the Mifflin–St Jeor equation, not medical advice.</div>` : '<div class="note">Fill in age, height and weight to get a calculated calorie target.</div>'}
+    <label class="field">Activity${sel('profile.activity', ACTIVITY_LEVELS.map(([id, label]) => [id, label]), p.activity || 'light')}</label>
+    <label class="field">Goal${sel('profile.goal', GOALS.map(([id, label]) => [id, label]), p.goal || 'maintain')}</label>
+    ${needsCard()}
   </section></div>
 
   <div class="set-group"><h3>Daily targets</h3><section class="card stack">
@@ -616,6 +627,8 @@ function viewSettings() {
     </div>
     ${S.targets.manual && calc ? '<button class="link" data-action="targets-auto" style="justify-self:start">Use the calculated targets instead</button>' : ''}
   </section></div>
+
+${movementSettings()}
 
   <div class="set-group"><h3>Mess</h3><section class="card stack">
     <label class="field">I eat${seg('set-diet', [['nonveg', 'Veg + Non-veg'], ['veg', 'Veg only']], S.prefs.diet)}</label>
@@ -659,7 +672,7 @@ function viewSettings() {
   <p class="small muted" style="text-align:center">Annamaya ${VERSION} · calorie figures are estimates</p>`;
 }
 
-const VIEWS = { today: viewToday, menu: viewMenu, journal: viewJournal, insights: viewInsights, settings: viewSettings, day: viewDay };
+const VIEWS = { today: viewToday, menu: viewMenu, move: viewMove, journal: viewJournal, insights: viewInsights, settings: viewSettings, day: viewDay };
 let renderSeq = 0;
 
 export async function render({ animate = false } = {}) {
@@ -696,6 +709,7 @@ const clock = (secs) => {
 };
 
 function tickLive() {
+  tickMove();
   const el = $('[data-live]');
   if (!el) return;
   const now = new Date();
@@ -726,6 +740,13 @@ function applyTheme() {
   if (NATIVE) window.AnnamayaNative.setBars(dark);
 }
 
+export async function updateProfile(patch) {
+  Object.assign(S.profile, patch);
+  recalcTargets();
+  await db.kv.set('profile', S.profile);
+  await db.kv.set('targets', S.targets);
+}
+
 function recalcTargets() {
   if (S.targets.manual) return;
   const calc = computeTargets(S.profile);
@@ -735,10 +756,15 @@ function recalcTargets() {
 async function saveSetting(path, raw) {
   const [group, key, idx] = path.split('.');
   if (group === 'profile') {
-    S.profile[key] = ['age', 'heightCm', 'weightKg'].includes(key) ? Number(raw) || null : raw;
+    S.profile[key] = ['age', 'heightCm', 'weightKg', 'stepCm'].includes(key) ? Number(raw) || null : raw;
     recalcTargets();
     await db.kv.set('profile', S.profile);
     await db.kv.set('targets', S.targets);
+  } else if (group === 'move') {
+    const n = Math.round(Number(raw));
+    if (!(n > 0)) return toast('Enter a positive number.');
+    S.move[key] = n;
+    await db.kv.set('move', S.move);
   } else if (group === 'targets') {
     const n = Math.round(Number(raw));
     if (!n || n < 0) return toast('Enter a positive number.');
@@ -810,7 +836,7 @@ async function exportPdf(from, to, periodName = '', coachText = '') {
   const calc = computeTargets(S.profile);
   const { manual, ...targets } = S.targets;
   const { bytes, name, pages } = await buildReport({
-    logs, from, to, now: S.now, targets, profile: S.profile, tdee: calc?.tdee || null, times: S.times, periodName, coachText,
+    logs, from, to, now: S.now, targets, profile: S.profile, tdee: calc?.tdee || null, times: S.times, periodName, coachText, activity: await activityForReport(from, to),
     offeredFor: (date, plan, meal) => (menuItems(date, plan || S.prefs.plan, meal) || []).filter((i) => !i.off).map((i) => ({ line: i.line, est: i.est })),
   });
   await download(name, new Blob([bytes], { type: 'application/pdf' }), 'application/pdf');
@@ -1014,6 +1040,8 @@ const ACTIONS = {
   },
 };
 
+Object.assign(ACTIONS, MOVE_ACTIONS);
+
 function bindEvents() {
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-action]');
@@ -1031,6 +1059,7 @@ function bindEvents() {
     }
   });
   $('#fab').addEventListener('click', () => {
+    if (S.tab === 'move') return S.move.active ? stopWorkout() : openWorkout({ mode: 'log' });
     const cm = currentMeal(S.now, S.times);
     openLog({ date: S.now, meal: cm.state === 'tomorrow' ? 'dinner' : cm.meal, mode: 'photo', plan: S.prefs.plan });
   });
@@ -1078,6 +1107,7 @@ function bindEvents() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       S.now = new Date();
+      onResumeMove();
       render();
     }
   });
@@ -1116,6 +1146,7 @@ async function loadState() {
   S.times = { ...structuredClone(DEFAULT_TIMES), ...(await db.kv.get('times', {})) };
   S.ai = ai.normaliseConfig(await db.kv.get('ai', null));
   S.coach = await db.kv.get('coach', {});
+  S.move = { ...MOVE_DEFAULTS, ...(await db.kv.get('move', {})) };
 }
 
 async function boot() {
@@ -1126,6 +1157,7 @@ async function boot() {
   await loadBundledMenus();
   bindEvents();
   route();
+  initMove();
   db.requestPersistence();
   if (!NATIVE && 'serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
